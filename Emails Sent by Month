@@ -1,0 +1,40 @@
+select
+      sent_month,
+      id_account,
+      cnt_message_total_by_account_month / cnt_message_total_by_month * 100 as sent_msg_percent_from_this_month,
+      min(case when row_first_sent_date = 1 then sent_day end) OVER (PARTITION BY id_account, sent_month)  as first_sent_date,
+      max(case when row_last_sent_date = 1 then sent_day end) OVER (PARTITION BY id_account, sent_month) as last_sent_date
+
+
+from(
+select
+     id_account,
+     cnt_message,
+     sent_day,
+    date (extract (YEAR from sent_day),
+    extract(MONTH from sent_day),
+   1) as sent_month,
+    sum(cnt_message) OVER (partition by id_account, date (extract (YEAR from sent_day), extract(MONTH from sent_day), 1)) as cnt_message_total_by_account_month,
+    sum(cnt_message) OVER (partition by date (extract (YEAR from sent_day), extract(MONTH from sent_day), 1)) as cnt_message_total_by_month,
+    row_number() over (partition by id_account, date (extract (YEAR from sent_day), extract(MONTH from sent_day), 1) order by sent_day) as row_first_sent_date ,
+    row_number() over (partition by id_account, date (extract (YEAR from sent_day), extract(MONTH from sent_day), 1) order by sent_day desc) as row_last_sent_date
+from(
+select id_account,
+      count(es.id_message) as cnt_message,
+      date_add(s.date, INTERVAL es.sent_date DAY) as sent_day
+
+
+ FROM
+            data-analytics-mate.DA.email_sent es
+        JOIN
+            data-analytics-mate.DA.account acc ON acc.id = es.id_account
+        JOIN
+            data-analytics-mate.DA.account_session acs ON es.id_account = acs.account_id
+        JOIN
+            data-analytics-mate.DA.session s ON s.ga_session_id = acs.ga_session_id
+        GROUP BY
+            id_account, DATE_ADD(s.date, INTERVAL es.sent_date DAY)
+)email_stats
+)stats
+ORDER BY
+    sent_month, id_account;
