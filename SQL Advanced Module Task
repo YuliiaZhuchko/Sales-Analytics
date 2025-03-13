@@ -1,0 +1,113 @@
+-- Розрахунок основних метрик по акаунтах
+WITH account_metrics AS (
+  SELECT
+    ss.date AS date,
+    sp.country,
+    acc.send_interval,
+    acc.is_verified,
+    acc.is_unsubscribed,
+    COUNT(acc.id) AS account_cnt,
+    0 AS sent_msg,
+    0 AS open_msg,
+    0 AS visit_msg
+  FROM data-analytics-mate.DA.account acc
+  JOIN data-analytics-mate.DA.account_session acs
+    ON acc.id = acs.account_id
+  JOIN data-analytics-mate.DA.session ss
+    ON acs.ga_session_id = ss.ga_session_id
+  JOIN data-analytics-mate.DA.session_params sp
+    ON acs.ga_session_id = sp.ga_session_id
+  GROUP BY date, country, send_interval, is_verified, is_unsubscribed
+),
+
+
+
+
+-- Розрахунок основних метрик по емейлам
+email_metrics AS (
+  SELECT
+    DATE_ADD(ss.date, INTERVAL es.sent_date DAY) AS date,
+    sp.country,
+    acc.send_interval,
+    acc.is_verified,
+    acc.is_unsubscribed,
+    0 AS account_cnt,
+    COUNT(DISTINCT es.id_message) AS sent_msg,
+    COUNT(DISTINCT eo.id_message) AS open_msg,
+    COUNT(DISTINCT ev.id_message) AS visit_msg
+  FROM data-analytics-mate.DA.email_sent es
+  JOIN data-analytics-mate.DA.account acc
+    ON es.id_account = acc.id
+  JOIN data-analytics-mate.DA.account_session acs
+    ON acc.id = acs.account_id
+  JOIN data-analytics-mate.DA.session ss
+    ON acs.ga_session_id = ss.ga_session_id
+  JOIN data-analytics-mate.DA.session_params sp
+    ON ss.ga_session_id = sp.ga_session_id
+  LEFT JOIN data-analytics-mate.DA.email_open eo
+    ON es.id_message = eo.id_message
+  LEFT JOIN data-analytics-mate.DA.email_visit ev
+    ON es.id_message = ev.id_message
+  GROUP BY date, country, send_interval, is_verified, is_unsubscribed
+),
+
+
+
+
+-- Об'єднання метрик
+combined_metrics AS (
+  SELECT * FROM account_metrics
+  UNION ALL
+  SELECT * FROM email_metrics
+),
+
+
+
+
+-- Агрегація даних
+aggregated_metrics AS (
+  SELECT
+    date,
+    country,
+    send_interval,
+    is_verified,
+    is_unsubscribed,
+    SUM(account_cnt) AS account_cnt,
+    SUM(sent_msg) AS sent_msg,
+    SUM(open_msg) AS open_msg,
+    SUM(visit_msg) AS visit_msg
+  FROM combined_metrics
+  GROUP BY date, country, send_interval, is_verified, is_unsubscribed
+),
+
+
+
+
+-- Додавання тоталів по країні
+aggregated_totals AS (
+  SELECT
+    *,
+    SUM(account_cnt) OVER (PARTITION BY country) AS total_country_account_cnt,
+    SUM(sent_msg) OVER (PARTITION BY country) AS total_country_sent_cnt
+  FROM aggregated_metrics
+),
+
+
+
+
+-- Ранжування
+ ranked_metrics AS (
+  SELECT
+    *,
+    DENSE_RANK() OVER ( ORDER BY total_country_account_cnt DESC) AS rank_total_country_account_cnt,
+    DENSE_RANK() OVER ( ORDER BY total_country_sent_cnt DESC) AS rank_total_country_sent_cnt
+  FROM aggregated_totals
+)
+
+
+
+
+SELECT
+  *
+FROM ranked_metrics
+WHERE rank_total_country_account_cnt <= 10 OR rank_total_country_sent_cnt <= 10
