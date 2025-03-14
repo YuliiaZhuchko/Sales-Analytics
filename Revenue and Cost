@@ -1,0 +1,27 @@
+SELECT
+  date,
+  'cost' AS type,
+  SUM(cost)AS value
+FROM
+  `data-analytics-mate.DA.paid_search_cost`
+GROUP BY
+  date
+UNION ALL
+SELECT
+  s.date,
+  'predict' AS type,
+  SUM(p.price)AS value
+FROM
+  data-analytics-mate.DA.session s
+JOIN
+  data-analytics-mate.DA.order o
+ON
+  s.ga_session_id = o.ga_session_id
+JOIN
+  data-analytics-mate.DA.product p
+ON
+  o.item_id = p.item_id
+GROUP BY
+  s.date
+ORDER BY
+  date desc
